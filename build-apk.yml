@@ -2,9 +2,17 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main, master, develop ]
+    branches:
+      - main
+      - master
+      - develop
+
   pull_request:
-    branches: [ main, master, develop ]
+    branches:
+      - main
+      - master
+      - develop
+
   workflow_dispatch:
 
 jobs:
@@ -12,55 +20,75 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout
+        uses: actions/checkout@v4
 
-    - name: Set up JDK 11
-      uses: actions/setup-java@v3
-      with:
-        java-version: '11'
-        distribution: 'temurin'
-        cache: gradle
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+          cache: gradle
 
-    - name: Extract Android Project
-      run: |
-        unzip -q Gen-Android-Project.zip
-        ls -la Gen/
+      - name: Check ZIP
+        run: |
+          echo "Repository files:"
+          ls -la
+          echo ""
+          echo "ZIP contents:"
+          unzip -l Gen-Android-Project.zip | head -100
 
-    - name: Make gradlew executable
-      run: |
-        chmod +x Gen/gradlew
+      - name: Extract Android Project
+        run: |
+          rm -rf Gen
+          unzip -q Gen-Android-Project.zip
+          
+          echo "Extracted project:"
+          find . -maxdepth 4 -type f | head -150
 
-    - name: Build Debug APK
-      run: |
-        cd Gen
-        ./gradlew assembleDebug
+      - name: Find Gradle wrapper
+        run: |
+          GRADLEW=$(find . -type f -name "gradlew" -print -quit)
 
-    - name: Upload Debug APK
-      uses: actions/upload-artifact@v3
-      with:
-        name: app-debug
-        path: Gen/app/build/outputs/apk/debug/app-debug.apk
+          if [ -z "$GRADLEW" ]; then
+            echo "ERROR: gradlew was not found!"
+            echo ""
+            echo "Directories:"
+            find . -maxdepth 5 -type d -print
+            exit 1
+          fi
 
-    - name: Build Release APK (Unsigned)
-      run: |
-        cd Gen
-        ./gradlew assembleRelease
-      continue-on-error: true
+          echo "Found Gradle wrapper:"
+          echo "$GRADLEW"
 
-    - name: Upload Release APK (if built)
-      uses: actions/upload-artifact@v3
-      continue-on-error: true
-      with:
-        name: app-release
-        path: Gen/app/build/outputs/apk/release/app-release-unsigned.apk
+          PROJECT_DIR=$(dirname "$GRADLEW")
 
-    - name: Create Release Summary
-      run: |
-        echo "## Android APK Build Summary" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "✅ Debug APK built successfully" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
-        echo "- Debug APK: app-debug.apk" >> $GITHUB_STEP_SUMMARY
-        echo "" >> $GITHUB_STEP_SUMMARY
-        echo "**Download:** Check the Artifacts section above to download the APK files." >> $GITHUB_STEP_SUMMARY
+          echo "Project directory:"
+          echo "$PROJECT_DIR"
+
+          echo "GRADLEW=$GRADLEW" >> "$GITHUB_ENV"
+          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
+
+      - name: Make gradlew executable
+        run: |
+          chmod +x "$GRADLEW"
+          ls -l "$GRADLEW"
+
+      - name: Build Debug APK
+        run: |
+          cd "$PROJECT_DIR"
+          ./gradlew assembleDebug --stacktrace
+
+      - name: Find APK
+        run: |
+          echo "Searching for APK..."
+          find . -type f -name "*.apk" -print
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: |
+            **/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 30
