@@ -1,94 +1,22 @@
-name: Build Android APK
+- name: Checkout
+  uses: actions/checkout@v4
 
-on:
-  push:
-    branches:
-      - main
-      - master
-      - develop
+- name: Set up Java 17
+  uses: actions/setup-java@v4
+  with:
+    distribution: temurin
+    java-version: '17'
+    cache: gradle
 
-  pull_request:
-    branches:
-      - main
-      - master
-      - develop
+- name: Build Debug APK
+  run: |
+    chmod +x gradlew
+    ./gradlew assembleDebug
 
-  workflow_dispatch:
-
-jobs:
-  build:
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Set up JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
-          cache: gradle
-
-      - name: Check ZIP
-        run: |
-          echo "Repository files:"
-          ls -la
-          echo ""
-          echo "ZIP contents:"
-          unzip -l Gen-Android-Project.zip | head -100
-
-      - name: Extract Android Project
-        run: |
-          rm -rf Gen
-          unzip -q Gen-Android-Project.zip
-          
-          echo "Extracted project:"
-          find . -maxdepth 4 -type f | head -150
-
-      - name: Find Gradle wrapper
-        run: |
-          GRADLEW=$(find . -type f -name "gradlew" -print -quit)
-
-          if [ -z "$GRADLEW" ]; then
-            echo "ERROR: gradlew was not found!"
-            echo ""
-            echo "Directories:"
-            find . -maxdepth 5 -type d -print
-            exit 1
-          fi
-
-          echo "Found Gradle wrapper:"
-          echo "$GRADLEW"
-
-          PROJECT_DIR=$(dirname "$GRADLEW")
-
-          echo "Project directory:"
-          echo "$PROJECT_DIR"
-
-          echo "GRADLEW=$GRADLEW" >> "$GITHUB_ENV"
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-
-      - name: Make gradlew executable
-        run: |
-          chmod +x "$GRADLEW"
-          ls -l "$GRADLEW"
-
-      - name: Build Debug APK
-        run: |
-          cd "$PROJECT_DIR"
-          ./gradlew assembleDebug --stacktrace
-
-      - name: Find APK
-        run: |
-          echo "Searching for APK..."
-          find . -type f -name "*.apk" -print
-
-      - name: Upload APK
-        uses: actions/upload-artifact@v4
-        with:
-          name: app-debug
-          path: |
-            **/build/outputs/apk/**/*.apk
-          if-no-files-found: error
-          retention-days: 30
+- name: Upload APK
+  uses: actions/upload-artifact@v4
+  with:
+    name: Gen-v2.0-debug
+    path: app/build/outputs/apk/debug/*.apk
+    if-no-files-found: error
+    retention-days: 30
