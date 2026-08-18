@@ -1,0 +1,57 @@
+name: Build APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Unzip project
+        run: |
+          unzip -q Gen-Android-Project.zip -d project
+          echo "Project contents:"
+          find project -maxdepth 3 -type f | head -100
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Find Gradle wrapper
+        run: |
+          GRADLEW=$(find project -name gradlew -type f | head -1)
+          if [ -z "$GRADLEW" ]; then
+            echo "ERROR: gradlew was not found inside the ZIP"
+            exit 1
+          fi
+          echo "Found Gradle wrapper: $GRADLEW"
+          echo "GRADLEW=$GRADLEW" >> "$GITHUB_ENV"
+
+      - name: Build APK
+        run: |
+          PROJECT_DIR=$(dirname "$GRADLEW")
+          cd "$PROJECT_DIR"
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Find APK
+        run: |
+          echo "Searching for APK..."
+          find project -type f -name "*.apk" -print
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-debug
+          path: project/**/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 30
