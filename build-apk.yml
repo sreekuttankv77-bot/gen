@@ -1,8 +1,10 @@
-Name: Build APK
+name: Build Android APK
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, develop ]
+  pull_request:
+    branches: [ main, master, develop ]
   workflow_dispatch:
 
 jobs:
@@ -10,27 +12,55 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v3
 
     - name: Set up JDK 11
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v3
       with:
         java-version: '11'
         distribution: 'temurin'
+        cache: gradle
 
     - name: Extract Android Project
-      run: unzip -q Gen-Android-Project.zip
+      run: |
+        unzip -q Gen-Android-Project.zip
+        ls -la Gen/
 
     - name: Make gradlew executable
-      run: chmod +x Gen/gradlew
+      run: |
+        chmod +x Gen/gradlew
 
     - name: Build Debug APK
-      working-directory: Gen
-      run: ./gradlew assembleDebug
+      run: |
+        cd Gen
+        ./gradlew assembleDebug
 
-    - name: Upload APK
-      uses: actions/upload-artifact@v4
+    - name: Upload Debug APK
+      uses: actions/upload-artifact@v3
       with:
         name: app-debug
         path: Gen/app/build/outputs/apk/debug/app-debug.apk
-        retention-days: 30
+
+    - name: Build Release APK (Unsigned)
+      run: |
+        cd Gen
+        ./gradlew assembleRelease
+      continue-on-error: true
+
+    - name: Upload Release APK (if built)
+      uses: actions/upload-artifact@v3
+      continue-on-error: true
+      with:
+        name: app-release
+        path: Gen/app/build/outputs/apk/release/app-release-unsigned.apk
+
+    - name: Create Release Summary
+      run: |
+        echo "## Android APK Build Summary" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "✅ Debug APK built successfully" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Artifacts:**" >> $GITHUB_STEP_SUMMARY
+        echo "- Debug APK: app-debug.apk" >> $GITHUB_STEP_SUMMARY
+        echo "" >> $GITHUB_STEP_SUMMARY
+        echo "**Download:** Check the Artifacts section above to download the APK files." >> $GITHUB_STEP_SUMMARY
