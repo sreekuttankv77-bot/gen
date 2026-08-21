@@ -1,55 +1,71 @@
-name: Build TORQUE APK
+name: Build Android APK
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Extract TORQUE project
+      - name: Find Android ZIP
         shell: bash
         run: |
           set -e
 
-          ZIP_FILE=$(find . -maxdepth 1 -type f -name "*.zip" | head -n 1)
+          echo "Files in repository:"
+          find . -maxdepth 2 -type f -print
+
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No ZIP file found"
+            echo "ERROR: No ZIP file found."
             exit 1
           fi
 
-          echo "Using: $ZIP_FILE"
+          echo "Found ZIP: $ZIP_FILE"
+          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
 
-          mkdir -p extracted
-          unzip -q "$ZIP_FILE" -d extracted
-
-          echo "Extracted files:"
-          find extracted -maxdepth 3 -type f | head -50
-
-      - name: Find Android project
+      - name: Unzip Android project
         shell: bash
         run: |
           set -e
 
-          PROJECT_DIR=$(find extracted -name settings.gradle -o -name settings.gradle.kts | head -n 1)
+          rm -rf project
+          mkdir -p project
 
-          if [ -z "$PROJECT_DIR" ]; then
-            echo "ERROR: Android project not found"
+          echo "Extracting: $ZIP_FILE"
+          unzip -q "$ZIP_FILE" -d project
+
+          echo "Project contents:"
+          find project -maxdepth 4 -type f | head -100
+
+      - name: Locate Gradle project
+        shell: bash
+        run: |
+          set -e
+
+          GRADLE_DIR=$(find project -name "gradlew" -type f | head -n 1)
+
+          if [ -z "$GRADLE_DIR" ]; then
+            echo "ERROR: gradlew not found."
+            echo "The ZIP does not appear to contain a valid Android project."
             exit 1
           fi
 
-          PROJECT_DIR=$(dirname "$PROJECT_DIR")
+          GRADLE_DIR=$(dirname "$GRADLE_DIR")
 
-          echo "PROJECT_DIR=$PROJECT_DIR" >> "$GITHUB_ENV"
-          echo "Android project: $PROJECT_DIR"
+          echo "Gradle project found at: $GRADLE_DIR"
+          echo "GRADLE_DIR=$GRADLE_DIR" >> "$GITHUB_ENV"
+
+      - name: Make Gradle executable
+        run: chmod +x "$GRADLE_DIR/gradlew"
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -57,24 +73,30 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.10.2"
-
       - name: Build Debug APK
-        working-directory: ${{ env.PROJECT_DIR }}
-        run: |
-          gradle assembleDebug --stacktrace
+        working-directory: ${{ env.GRADLE_DIR }}
+        run: ./gradlew assembleDebug --stacktrace
 
       - name: Find APK
         shell: bash
         run: |
-          find "${{ env.PROJECT_DIR }}/app/build/outputs/apk" -type f -name "*.apk" -print
+          set -e
+
+          APK=$(find "$GRADLE_DIR" -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          echo "APK found:"
+          echo "$APK"
+
+          mkdir -p output
+          cp "$APK" output/Torque-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: TORQUE-debug
-          path: "${{ env.PROJECT_DIR }}/app/build/outputs/apk/debug/*.apk"
-          if-no-files-found: error
+          name: Torque-APK
+          path: output/Torque-debug.apk
