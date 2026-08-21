@@ -1,102 +1,84 @@
-name: Build Android APK
+name: Build Torque Android APK
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [ main ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Find Android ZIP
+      - name: Find Torque ZIP
+        id: zip
         shell: bash
         run: |
-          set -e
-
-          echo "Files in repository:"
-          find . -maxdepth 2 -type f -print
-
-          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
-
+          set -euo pipefail
+          ZIP_FILE="$(find . -maxdepth 2 -type f -iname 'torque-android-*.zip' -print -quit)"
           if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: No ZIP file found."
+            echo "ERROR: Torque ZIP not found."
+            find . -maxdepth 2 -type f -print
             exit 1
           fi
+          echo "zip=$ZIP_FILE" >> "$GITHUB_OUTPUT"
+          echo "Using $ZIP_FILE"
 
-          echo "Found ZIP: $ZIP_FILE"
-          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
-
-      - name: Unzip Android project
+      - name: Extract project
         shell: bash
         run: |
-          set -e
-
+          set -euo pipefail
           rm -rf project
           mkdir -p project
-
-          echo "Extracting: $ZIP_FILE"
-          unzip -q "$ZIP_FILE" -d project
-
-          echo "Project contents:"
-          find project -maxdepth 4 -type f | head -100
+          unzip -q "${{ steps.zip.outputs.zip }}" -d project
+          echo "Extracted:"
+          find project -maxdepth 3 -type f -print | sort | head -100
 
       - name: Locate Gradle project
+        id: gradle
         shell: bash
         run: |
-          set -e
-
-          GRADLE_DIR=$(find project -name "gradlew" -type f | head -n 1)
-
+          set -euo pipefail
+          GRADLE_DIR="$(find project -type f -name 'settings.gradle' -o -name 'settings.gradle.kts' | head -n 1 | xargs -r dirname)"
           if [ -z "$GRADLE_DIR" ]; then
-            echo "ERROR: gradlew not found."
-            echo "The ZIP does not appear to contain a valid Android project."
+            echo "ERROR: settings.gradle not found."
+            find project -maxdepth 4 -type f -print
             exit 1
           fi
+          echo "dir=$GRADLE_DIR" >> "$GITHUB_OUTPUT"
+          echo "Gradle project: $GRADLE_DIR"
 
-          GRADLE_DIR=$(dirname "$GRADLE_DIR")
-
-          echo "Gradle project found at: $GRADLE_DIR"
-          echo "GRADLE_DIR=$GRADLE_DIR" >> "$GITHUB_ENV"
-
-      - name: Make Gradle executable
-        run: chmod +x "$GRADLE_DIR/gradlew"
-
-      - name: Set up Java
+      - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: "17"
+          java-version: '17'
 
-      - name: Build Debug APK
-        working-directory: ${{ env.GRADLE_DIR }}
-        run: ./gradlew assembleDebug --stacktrace
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.10.2'
 
-      - name: Find APK
+      - name: Build debug APK
+        working-directory: ${{ steps.gradle.outputs.dir }}
         shell: bash
         run: |
-          set -e
-
-          APK=$(find "$GRADLE_DIR" -type f -name "*.apk" | head -n 1)
-
-          if [ -z "$APK" ]; then
-            echo "ERROR: APK was not generated."
-            exit 1
+          set -euo pipefail
+          if [ -x ./gradlew ]; then
+            ./gradlew --no-daemon assembleDebug
+          else
+            gradle --no-daemon assembleDebug
           fi
-
-          echo "APK found:"
-          echo "$APK"
-
-          mkdir -p output
-          cp "$APK" output/Torque-debug.apk
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Torque-APK
-          path: output/Torque-debug.apk
+          name: torque-debug-apk
+          path: ${{ steps.gradle.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
