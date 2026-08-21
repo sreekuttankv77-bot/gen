@@ -17,6 +17,50 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Find and extract project ZIP
+        shell: bash
+        run: |
+          set -e
+
+          echo "Repository contents:"
+          ls -lah
+
+          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+
+          if [ -z "$ZIP_FILE" ]; then
+            echo "ERROR: No ZIP file found."
+            exit 1
+          fi
+
+          echo "Found: $ZIP_FILE"
+
+          mkdir -p project
+
+          unzip -q "$ZIP_FILE" -d project
+
+          echo "Extracted project:"
+          find project -maxdepth 3 -type f | sort | head -200
+
+      - name: Locate Android project
+        shell: bash
+        run: |
+          set -e
+
+          GRADLEW=$(find project -type f -name "gradlew" | head -n 1)
+
+          if [ -z "$GRADLEW" ]; then
+            echo "ERROR: gradlew not found."
+            echo "The ZIP does not contain a complete Android Gradle project."
+            exit 1
+          fi
+
+          GRADLE_DIR=$(dirname "$GRADLEW")
+
+          echo "Android project found at:"
+          echo "$GRADLE_DIR"
+
+          echo "GRADLE_DIR=$GRADLE_DIR" >> "$GITHUB_ENV"
+
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
@@ -28,43 +72,67 @@ jobs:
         with:
           gradle-version: "8.10.2"
 
-      - name: Check Android project
+      - name: Check project
         shell: bash
         run: |
           set -e
-          echo "Repository:"
-          ls -la
+
+          cd "$GRADLE_DIR"
+
+          echo "Project directory:"
+          pwd
+
           echo
-          echo "Android project:"
-          find app -maxdepth 3 -type f | sort
+          echo "Project files:"
+          find . -maxdepth 3 -type f | sort | head -200
+
+          echo
+          echo "Gradle wrapper:"
+          ls -lah gradlew
+
+          chmod +x gradlew
 
       - name: Check database
         shell: bash
         run: |
           set -e
-          if [ -f database/malayalam_cinema.db ]; then
-            echo "✓ Malayalam Cinema database found"
-            ls -lh database/malayalam_cinema.db
+
+          DB=$(find project -type f -name "malayalam_cinema.db" | head -n 1)
+
+          if [ -z "$DB" ]; then
+            echo "WARNING: Movie database not found."
           else
-            echo "ERROR: database/malayalam_cinema.db not found"
-            exit 1
+            echo "Movie database found:"
+            ls -lh "$DB"
           fi
 
       - name: Build Debug APK
         shell: bash
         run: |
           set -e
-          gradle assembleDebug --no-daemon --stacktrace
+
+          cd "$GRADLE_DIR"
+
+          chmod +x gradlew
+
+          ./gradlew assembleDebug \
+            --no-daemon \
+            --stacktrace
 
       - name: Find APK
         shell: bash
         run: |
           set -e
-          find app/build/outputs -type f -name "*.apk" -print
+
+          echo "APK files:"
+          find "$GRADLE_DIR/app/build/outputs" \
+            -type f \
+            -name "*.apk" \
+            -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: Malayalam-Cinema-APK
-          path: app/build/outputs/apk/debug/*.apk
+          path: "**/app/build/outputs/apk/debug/*.apk"
           if-no-files-found: error
