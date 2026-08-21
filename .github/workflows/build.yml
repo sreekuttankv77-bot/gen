@@ -1,8 +1,9 @@
-name: Build Torque Android APK
+name: Build Malayalam Cinema APK
 
 on:
   push:
-    branches: [ main ]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -13,72 +14,57 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
+      - name: Checkout repository
         uses: actions/checkout@v4
-
-      - name: Find Torque ZIP
-        id: zip
-        shell: bash
-        run: |
-          set -euo pipefail
-          ZIP_FILE="$(find . -maxdepth 2 -type f -iname 'torque-android-*.zip' -print -quit)"
-          if [ -z "$ZIP_FILE" ]; then
-            echo "ERROR: Torque ZIP not found."
-            find . -maxdepth 2 -type f -print
-            exit 1
-          fi
-          echo "zip=$ZIP_FILE" >> "$GITHUB_OUTPUT"
-          echo "Using $ZIP_FILE"
-
-      - name: Extract project
-        shell: bash
-        run: |
-          set -euo pipefail
-          rm -rf project
-          mkdir -p project
-          unzip -q "${{ steps.zip.outputs.zip }}" -d project
-          echo "Extracted:"
-          find project -maxdepth 3 -type f -print | sort | head -100
-
-      - name: Locate Gradle project
-        id: gradle
-        shell: bash
-        run: |
-          set -euo pipefail
-          GRADLE_DIR="$(find project -type f -name 'settings.gradle' -o -name 'settings.gradle.kts' | head -n 1 | xargs -r dirname)"
-          if [ -z "$GRADLE_DIR" ]; then
-            echo "ERROR: settings.gradle not found."
-            find project -maxdepth 4 -type f -print
-            exit 1
-          fi
-          echo "dir=$GRADLE_DIR" >> "$GITHUB_OUTPUT"
-          echo "Gradle project: $GRADLE_DIR"
 
       - name: Set up Java 17
         uses: actions/setup-java@v4
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: "17"
 
       - name: Set up Gradle
         uses: gradle/actions/setup-gradle@v4
         with:
-          gradle-version: '8.10.2'
+          gradle-version: "8.10.2"
 
-      - name: Build debug APK
-        working-directory: ${{ steps.gradle.outputs.dir }}
+      - name: Check Android project
         shell: bash
         run: |
-          set -euo pipefail
-          if [ -x ./gradlew ]; then
-            ./gradlew --no-daemon assembleDebug
+          set -e
+          echo "Repository:"
+          ls -la
+          echo
+          echo "Android project:"
+          find app -maxdepth 3 -type f | sort
+
+      - name: Check database
+        shell: bash
+        run: |
+          set -e
+          if [ -f database/malayalam_cinema.db ]; then
+            echo "✓ Malayalam Cinema database found"
+            ls -lh database/malayalam_cinema.db
           else
-            gradle --no-daemon assembleDebug
+            echo "ERROR: database/malayalam_cinema.db not found"
+            exit 1
           fi
+
+      - name: Build Debug APK
+        shell: bash
+        run: |
+          set -e
+          gradle assembleDebug --no-daemon --stacktrace
+
+      - name: Find APK
+        shell: bash
+        run: |
+          set -e
+          find app/build/outputs -type f -name "*.apk" -print
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: torque-debug-apk
-          path: ${{ steps.gradle.outputs.dir }}/app/build/outputs/apk/debug/*.apk
+          name: Malayalam-Cinema-APK
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
