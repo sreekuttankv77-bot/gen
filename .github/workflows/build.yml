@@ -1,13 +1,10 @@
 name: Build Malayalam Cinema APK
 
 on:
+  workflow_dispatch:
   push:
     branches:
       - main
-  workflow_dispatch:
-
-permissions:
-  contents: read
 
 jobs:
   build:
@@ -17,31 +14,41 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Find and extract project ZIP
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Find project ZIP
         shell: bash
         run: |
           set -e
 
-          echo "Repository contents:"
-          ls -lah
-
-          ZIP_FILE=$(find . -maxdepth 1 -type f -iname "*.zip" | head -n 1)
+          ZIP_FILE=$(find . -maxdepth 2 -type f -iname "*.zip" | head -n 1)
 
           if [ -z "$ZIP_FILE" ]; then
             echo "ERROR: No ZIP file found."
             exit 1
           fi
 
-          echo "Found: $ZIP_FILE"
+          echo "Found ZIP: $ZIP_FILE"
+          echo "ZIP_FILE=$ZIP_FILE" >> "$GITHUB_ENV"
 
+      - name: Extract Android project
+        shell: bash
+        run: |
+          set -e
+
+          rm -rf project
           mkdir -p project
 
           unzip -q "$ZIP_FILE" -d project
 
-          echo "Extracted project:"
-          find project -maxdepth 3 -type f | sort | head -200
+          echo "Extracted files:"
+          find project -maxdepth 5 -type f | sort | head -200
 
-      - name: Locate Android project
+      - name: Locate Gradle project
         shell: bash
         run: |
           set -e
@@ -49,90 +56,52 @@ jobs:
           GRADLEW=$(find project -type f -name "gradlew" | head -n 1)
 
           if [ -z "$GRADLEW" ]; then
-            echo "ERROR: gradlew not found."
-            echo "The ZIP does not contain a complete Android Gradle project."
+            echo "ERROR: gradlew was not found after extracting the ZIP."
+            echo ""
+            echo "The ZIP must contain a complete Android project."
+            echo ""
+            echo "ZIP contents:"
+            find project -maxdepth 6 -type f | sort | head -300
             exit 1
           fi
 
           GRADLE_DIR=$(dirname "$GRADLEW")
 
-          echo "Android project found at:"
+          echo "Gradle project found:"
           echo "$GRADLE_DIR"
 
           echo "GRADLE_DIR=$GRADLE_DIR" >> "$GITHUB_ENV"
 
-      - name: Set up Java 17
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "17"
-
-      - name: Set up Gradle
-        uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: "8.10.2"
-
-      - name: Check project
+      - name: Make Gradle executable
         shell: bash
         run: |
-          set -e
+          chmod +x "$GRADLE_DIR/gradlew"
 
-          cd "$GRADLE_DIR"
-
-          echo "Project directory:"
-          pwd
-
-          echo
-          echo "Project files:"
-          find . -maxdepth 3 -type f | sort | head -200
-
-          echo
-          echo "Gradle wrapper:"
-          ls -lah gradlew
-
-          chmod +x gradlew
-
-      - name: Check database
+      - name: Build debug APK
         shell: bash
+        working-directory: ${{ env.GRADLE_DIR }}
         run: |
-          set -e
-
-          DB=$(find project -type f -name "malayalam_cinema.db" | head -n 1)
-
-          if [ -z "$DB" ]; then
-            echo "WARNING: Movie database not found."
-          else
-            echo "Movie database found:"
-            ls -lh "$DB"
-          fi
-
-      - name: Build Debug APK
-        shell: bash
-        run: |
-          set -e
-
-          cd "$GRADLE_DIR"
-
-          chmod +x gradlew
-
-          ./gradlew assembleDebug \
-            --no-daemon \
-            --stacktrace
+          ./gradlew --no-daemon assembleDebug
 
       - name: Find APK
         shell: bash
         run: |
           set -e
 
-          echo "APK files:"
-          find "$GRADLE_DIR/app/build/outputs" \
-            -type f \
-            -name "*.apk" \
-            -print
+          APK=$(find "$GRADLE_DIR" -type f -name "*.apk" | head -n 1)
+
+          if [ -z "$APK" ]; then
+            echo "ERROR: APK was not generated."
+            exit 1
+          fi
+
+          echo "APK found:"
+          echo "$APK"
+
+          cp "$APK" "$GITHUB_WORKSPACE/Malayalam-Cinema-debug.apk"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: Malayalam-Cinema-APK
-          path: "**/app/build/outputs/apk/debug/*.apk"
-          if-no-files-found: error
+          name: Malayalam-Cinema-debug
+          path: Malayalam-Cinema-debug.apk
