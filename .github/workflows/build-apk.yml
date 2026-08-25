@@ -21,6 +21,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Extract project zip (if present)
+        run: |
+          set -euo pipefail
+          ZIP_FILE=$(find . -maxdepth 1 -iname "*.zip" | head -n 1)
+          if [ -n "$ZIP_FILE" ]; then
+            echo "Found $ZIP_FILE — extracting to repo root"
+            unzip -o "$ZIP_FILE" -d .
+          else
+            echo "No zip file found at repo root — assuming project files are already unpacked"
+          fi
+
       - name: Set up Java 17
         uses: actions/setup-java@v5
         with:
